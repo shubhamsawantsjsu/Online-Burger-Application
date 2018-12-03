@@ -1,16 +1,12 @@
 var express = require('express');
-var axios = require('axios');
-var path = require('path');
 var XMLHttpRequest = require("xmlhttprequest").XMLHttpRequest;
 var bodyParser = require('body-parser');
-var csurf = require('csurf');
 var session = require('express-session');
 var cookieParser = require('cookie-parser');
 var secret = require('./config/secret');
 var ejs = require('ejs');
 var engine = require('ejs-mate');
 var flash = require('express-flash');
-var waterfall = require('async-waterfall');
 
 var app = express();
 
@@ -32,7 +28,7 @@ var userloginServer = "http://192.168.99.100:5000/"
 var productCatalogueServer = "http://192.168.99.100:5001/"
 var cartServer = "http://192.168.99.100:5002/"
 var orderServer = "http://192.168.99.100:5003/"
-var paymentServer = ""
+var paymentServer = "http://192.168.99.100:5004/"
 
 var userID = null;
 var isLoggedIn = false;
@@ -209,7 +205,6 @@ app.get('/', function(request, response){
 			response.render('./main/catalog', {products: products_array, login: isLoggedIn, cartQuantity: cartQuantity});
 		}
 	}
-	//response.render('user/login', {login:isLoggedIn, cartQuantity: 0});
 });
 
 app.get('/products/:id', function(request, response) {
@@ -230,8 +225,9 @@ app.get('/products/:id', function(request, response) {
 
 app.post('/products/:id', function(request, response) {
 
-	addToCartCallBack(request, ()=>{
-		var productId = request.params["id"];
+	var productId = request.params["id"];
+
+	addToCartCallBack(request, productId, ()=>{
 		var xmlhttp1 = new XMLHttpRequest();
 		xmlhttp1.open("GET", productCatalogueServer+ "products/" + productId);
 		xmlhttp1.setRequestHeader("Content-Type", "application/json");
@@ -247,55 +243,77 @@ app.post('/products/:id', function(request, response) {
 	});
 });
 
-function addToCartCallBack(request, callback) {
+function addToCartCallBack(request, productId, callback) {
 
-	var quantityOfProduct = request.body.quantity;
-	var price = request.body.priceHidden;
-	var productName = request.body.item;
+	console.log("ProductId is" + productId);
 
-	var isAlreadyPresent = false;
+	getTheProduct(productId, (product)=> {
+		var quantityOfProduct = request.body.quantity;
+		var price = request.body.priceHidden;
+		var productName = request.body.item;
 
-	for (var i=0;i<cart.Products.length;i++) {
-		var currentProduct = cart.Products[i].ProductName;
+		var isAlreadyPresent = false;
 
-		if(productName === currentProduct) {
-			var quantityOfCurrentProduct = cart.Products[i].Quantity;
-			var temp = parseInt(quantityOfCurrentProduct)+parseInt(quantityOfProduct);
-			quantityOfCurrentProduct = temp.toString();
-			cart.Products[i].Quantity = quantityOfCurrentProduct;
-			isAlreadyPresent = true;
-			break;
+		for (var i=0;i<cart.Products.length;i++) {
+			var currentProduct = cart.Products[i].ProductName;
+
+			if(productName === currentProduct) {
+				var quantityOfCurrentProduct = cart.Products[i].Quantity;
+				var temp = parseInt(quantityOfCurrentProduct)+parseInt(quantityOfProduct);
+				quantityOfCurrentProduct = temp.toString();
+				cart.Products[i].Quantity = quantityOfCurrentProduct;
+				isAlreadyPresent = true;
+				break;
+			}
 		}
-	}
 
-	if(!isAlreadyPresent) {
-		var productDetailsToBeInsertedIntoTheCart = {
+		if(!isAlreadyPresent) {
+			var productDetailsToBeInsertedIntoTheCart = {
 
-				"ProductName": productName,
-				"Price": price,
-				"Quantity": quantityOfProduct
-		};
+					"ProductName": productName,
+					"Price": price,
+					"Quantity": quantityOfProduct,
+					"Image": product.Image
+			};
 
-		cart.Products.push(productDetailsToBeInsertedIntoTheCart);
-	}
+			cart.Products.push(productDetailsToBeInsertedIntoTheCart);
+		}
 
+		var xmlhttp = new XMLHttpRequest();
+		xmlhttp.open("PUT", cartServer+ "carts");
+
+		xmlhttp.setRequestHeader("Content-Type", "application/json");
+		xmlhttp.send(JSON.stringify(cart));
+
+		xmlhttp.onreadystatechange = function()
+		{
+				if (this.readyState === 4 && this.status === 200) {
+					cart = JSON.parse(this.responseText);
+					cartQuantity = cart.Products.length;
+
+					console.log("cartQuantity is: "+cartQuantity);
+				}
+		}
+
+		callback();
+	});
+}
+
+function getTheProduct(productId, callback) {
 	var xmlhttp = new XMLHttpRequest();
-	xmlhttp.open("PUT", cartServer+ "carts");
+	xmlhttp.open("GET", productCatalogueServer+ "products/"+ productId);
 
 	xmlhttp.setRequestHeader("Content-Type", "application/json");
-	xmlhttp.send(JSON.stringify(cart));
+	xmlhttp.send();
+	var newProduct = null;
 
 	xmlhttp.onreadystatechange = function()
 	{
 			if (this.readyState === 4 && this.status === 200) {
-				cart = JSON.parse(this.responseText);
-				cartQuantity = cart.Products.length;
-
-				console.log("cartQuantity is: "+cartQuantity);
+				newProduct = JSON.parse(this.responseText);
+				callback(newProduct);
 			}
 	}
-
-	callback();
 }
 
 app.get('/cart', function(request, response) {
@@ -383,15 +401,39 @@ app.post('/order', function(request, response) {
 	}
 
 	createOrderCallback(request, (order)=> {
-		console.log("Inside ------------------------------------------");
-		console.log(order);
 		cartQuantity = 0;
 		cart.Products = [];
 		updateTheCart(cart, () => {
-			response.render('./main/orderdetail', {order: order, login: isLoggedIn, cartQuantity: cartQuantity});
+			createANewPaymentCallback(order, (payment)=>{
+				response.render('./main/orderdetail', {order: order, login: isLoggedIn, cartQuantity: cartQuantity, payment:payment});
+			});
 		});
 	});
 });
+
+function createANewPaymentCallback(order, callback) {
+	var xmlhttp = new XMLHttpRequest();
+	xmlhttp.open("POST", paymentServer+ "payments");
+	xmlhttp.setRequestHeader("Content-Type", "application/json");
+
+	var jsonToSend = {
+		"UserID": userID,
+		"OrderID": order.OrderID,
+		"Amount": order.Total
+	};
+
+	xmlhttp.send(JSON.stringify(jsonToSend));
+
+	var payment = null;
+
+	xmlhttp.onreadystatechange = function()
+	{
+			if (this.readyState === 4 && this.status === 200) {
+				payment = JSON.parse(this.responseText);
+				callback(payment);
+			}
+	}
+}
 
 function createOrderCallback (request, callback) {
 
@@ -466,10 +508,114 @@ function getOrder(request, callback) {
 
 app.get('/vieworder/:orderid', function(request, response) {
 	getOrder(request, (currentOrder)=>{
-		console.log(currentOrder);
-		response.render('./main/viewOrderDetails', {order:currentOrder, login:isLoggedIn, cartQuantity:cartQuantity});
+		if(currentOrder.PaymentStatus === "Payment received") {
+			response.render('./main/viewOrderDetails', {order:currentOrder, login:isLoggedIn, cartQuantity:cartQuantity});
+		}
+		else {
+			getPaymentFromOrderID(currentOrder, (currentPayment)=> {
+				console.log("currentPayment is:");
+				console.log(currentPayment);
+				response.render('./main/orderdetail', {payment:currentPayment, order:currentOrder, login:isLoggedIn, cartQuantity:cartQuantity});
+			});
+		}
 	});
 });
+
+function getPaymentFromOrderID(currentOrder, callback) {
+	var xmlhttp = new XMLHttpRequest();
+	xmlhttp.open("GET", paymentServer + "payments/paymentfromorder/" + currentOrder.OrderID);
+	xmlhttp.setRequestHeader("Content-Type", "application/json");
+
+	xmlhttp.send();
+
+	var currentPayment = null;
+
+	xmlhttp.onreadystatechange = function()
+	{
+		if (this.readyState === 4 && this.status === 200) {
+			currentPayment = JSON.parse(this.responseText);
+			callback(currentPayment);
+		}
+	}
+}
+
+app.get('/payment', function(request, response) {
+	if(isLoggedIn) {
+		response.redirect('/products');
+	}
+	else {
+		response.redirect('/signIn');
+	}
+});
+
+app.post('/payment', function(request, response) {
+
+	if (!isLoggedIn) {
+		response.redirect('/signIn');
+	}
+	updateThePaymentStatus(request, (currentPayment)=> {
+		console.log(currentPayment);
+		getOrderFromOrderID(request, currentPayment.OrderID, (order)=> {
+			response.render('./main/paymentReceived', {order:order, login:isLoggedIn, cartQuantity:cartQuantity});
+		});
+	});
+});
+
+function getOrderFromOrderID(request, orderid, callback) {
+	var xmlhttp = new XMLHttpRequest();
+	xmlhttp.open("GET", orderServer + "orders/" + orderid);
+	xmlhttp.setRequestHeader("Content-Type", "application/json");
+
+	xmlhttp.send();
+
+	var currentOrder = null;
+
+	xmlhttp.onreadystatechange = function()
+	{
+		if (this.readyState === 4 && this.status === 200) {
+			currentOrder = JSON.parse(this.responseText);
+			changeOrderStatus(currentOrder, (newOrder)=> {
+				callback(newOrder);
+			});
+		}
+	}
+}
+
+function changeOrderStatus(currentOrder, callback) {
+	var xmlhttp = new XMLHttpRequest();
+	xmlhttp.open("PUT", orderServer + "orders/updateorderstatus/" + currentOrder.OrderID);
+	xmlhttp.setRequestHeader("Content-Type", "application/json");
+
+	xmlhttp.send();
+
+	var newOrder = null;
+
+	xmlhttp.onreadystatechange = function()
+	{
+		if (this.readyState === 4 && this.status === 200) {
+			newOrder = JSON.parse(this.responseText);
+			callback(newOrder);
+		}
+	}
+}
+
+function updateThePaymentStatus(request, callback) {
+
+	var xmlhttp = new XMLHttpRequest();
+	xmlhttp.open("PUT", paymentServer + "payments/updateThePaymentStatus/" + request.body.paymentID);
+	xmlhttp.setRequestHeader("Content-Type", "application/json");
+
+	xmlhttp.send();
+	var currentPayment = null;
+
+	xmlhttp.onreadystatechange = function()
+	{
+		if (this.readyState === 4 && this.status === 200) {
+			currentPayment = JSON.parse(this.responseText);
+			callback(currentPayment);
+		}
+	}
+}
 
 app.listen(secret.port, function (err) {
     if (err) throw err;

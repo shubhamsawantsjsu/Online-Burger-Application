@@ -3,9 +3,9 @@
 <div class="container-fluid">
 <div class="row">
 <div class="col-md-8 col-md-offset-2">
-    <h2><%= order.OrderStatus %></h2>
+    <h2> Your payment has been received. Thank you!! </h2>
 
-    <form action="/payment" method="POST">
+    <form action="/orders" method="GET">
 
 	<table class ="table table-striped">
 	    <tr>
@@ -24,17 +24,13 @@
 		    <td>&nbsp;&nbsp; <%=  order.Products[i].Quantity %> &nbsp;&nbsp;</td>
 		    <td>&nbsp;&nbsp; <%=  order.Products[i].Price %>&nbsp;&nbsp;</td>
 
-
 		       </tr>
 
 		       <% } %>
 
 	    </table>
 	<br>
-  <input type="hidden" name="orderid" value="<%= order.OrderID %>"/>
-  <input type="hidden" name="orderTotal" value="<%= order.Total %>"/>
-  <input type="hidden" name="paymentID" value="<%= payment.PaymentID %>"/>
-	<input type="submit" class="btn btn-primary" value="Pay Now!!">
+	<input type="submit" class="btn btn-primary" value="View your Orders">
 
     </form>
 
