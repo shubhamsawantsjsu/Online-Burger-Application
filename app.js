@@ -24,20 +24,17 @@ app.use(express.static(__dirname + '/public'));
 app.engine('ejs', engine);
 app.set('view engine', 'ejs');
 
-var userloginServer = "http://192.168.99.100:5000/"
-var productCatalogueServer = "http://192.168.99.100:5001/"
-var cartServer = "http://192.168.99.100:5002/"
-var orderServer = "http://192.168.99.100:5003/"
-var paymentServer = "http://192.168.99.100:5004/"
+var userloginServer = "http://teamProjectlb-349932868.us-east-2.elb.amazonaws.com:8080/";//"http://192.168.99.100:5000/"
+var productCatalogueServer = "http://Productelb-1814563480.us-east-2.elb.amazonaws.com:3000/";//"http://192.168.99.100:5001/"
+var cartServer = "http://teamprojectcart-844108558.us-west-1.elb.amazonaws.com:8080/";//"http://192.168.99.100:5002/"
+var orderServer = "http://OrderELB-1768727271.us-east-2.elb.amazonaws.com:80/";//"http://192.168.99.100:5003/""http://orderapi-1735855588.us-east-1.elb.amazonaws.com:80/";//
+var paymentServer = "http://PaymentAPI-705203207.us-east-2.elb.amazonaws.com:5004/";//"http://192.168.99.100:5004/"
 
 var userID = null;
 var isLoggedIn = false;
 var cartQuantity = 0;
 var cart = null;
 var cartID = null;
-
-//cart.items = [];
-//cart.Total = 0;
 
 app.get('/signin', function(request, response) {
 	response.render('user/login',  {login: isLoggedIn, cartQuantity: cartQuantity});
@@ -53,9 +50,10 @@ app.post('/signin', function(request, response) {
 	xmlhttp.open("GET", userloginServer+ "users/" +emailID);
 	xmlhttp.setRequestHeader("Content-Type", "application/json");
 	xmlhttp.send();
-
+	console.log("In SignIn Post call");
 	xmlhttp.onreadystatechange = function()
 	{
+		console.log("Came here");
 		if (this.readyState === 4 && this.status === 200) {
 			var responseText = JSON.parse(this.responseText);
 
@@ -179,7 +177,6 @@ function productCatalogCallBack(req, callback) {
 				if (this.readyState === 4 && this.status === 200) {
 					cart = JSON.parse(this.responseText);
 					cartQuantity = cart.Products.length;
-					//response.render('./main/catalog', {products: products_array, login: isLoggedIn, cartQuantity: 0});
 				}
 		}
 	}
@@ -490,12 +487,14 @@ function getAllorders(request, callback) {
 
 function getOrder(request, callback) {
 	var orderid = request.params["orderid"];
+	console.log("OrderID is: "+orderid);
+
 	var xmlhttp = new XMLHttpRequest();
 	xmlhttp.open("GET", orderServer + "orders/" + orderid);
 	xmlhttp.setRequestHeader("Content-Type", "application/json");
 
 	xmlhttp.send();
-
+	console.log("Sent the request");
 	var currentOrder = null;
 	xmlhttp.onreadystatechange = function()
 	{
@@ -513,6 +512,7 @@ app.get('/vieworder/:orderid', function(request, response) {
 		}
 		else {
 			getPaymentFromOrderID(currentOrder, (currentPayment)=> {
+				console.log("Payment is:"+payment);
 				console.log("currentPayment is:");
 				console.log(currentPayment);
 				response.render('./main/orderdetail', {payment:currentPayment, order:currentOrder, login:isLoggedIn, cartQuantity:cartQuantity});
